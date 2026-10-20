@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { getSupabase } from "../../../lib/supabase";
 import { isResponder } from "../../../lib/responder-auth";
 
-export const dynamic = "force-dynamic";
-
 function unauthorized() {
   return NextResponse.json(
     { error: "Responder sign-in required." },
