@@ -1,6 +1,12 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import {
   Activity,
   ArrowRight,
@@ -44,6 +50,8 @@ type Report = {
   time: string;
   lat?: number;
   lon?: number;
+  evidence?: string[];
+  responderNote?: string;
 };
 
 type IncidentAction = {
@@ -124,6 +132,7 @@ const sampleReports: Report[] = [
     time: "28 min ago",
     lat: 13.0878,
     lon: 80.2785,
+    evidence: ["Sample: matching reports from different devices nearby."],
   },
   {
     id: "demo-3",
@@ -150,6 +159,8 @@ const sampleReports: Report[] = [
     time: "1 h ago",
     lat: 13.1067,
     lon: 80.2206,
+    evidence: ["Sample: matching reports from different devices nearby."],
+    responderNote: "Sample: crew on site, lane closed.",
   },
 ];
 
@@ -244,6 +255,61 @@ async function blobToWavBase64(blob: Blob): Promise<string> {
   return bytesToBase64(new Uint8Array(buffer));
 }
 
+type ReportDto = {
+  id: string;
+  title: string;
+  details: string;
+  location: string;
+  category: Category;
+  severity: Severity;
+  status: Status;
+  createdAt: string;
+  lat?: number;
+  lon?: number;
+  evidence?: string[];
+  responderNote?: string;
+};
+
+function timeAgo(iso: string) {
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) return "Just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} d ago`;
+}
+
+function reportFromDto(dto: ReportDto): Report {
+  return {
+    id: dto.id,
+    title: dto.title,
+    details: dto.details,
+    location: dto.location,
+    category: dto.category,
+    severity: dto.severity,
+    status: dto.status,
+    time: timeAgo(dto.createdAt),
+    evidence: dto.evidence,
+    responderNote: dto.responderNote,
+    lat: dto.lat,
+    lon: dto.lon,
+  };
+}
+
+function getDeviceId() {
+  try {
+    let id = localStorage.getItem("civicsignal_device");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("civicsignal_device", id);
+    }
+    return id;
+  } catch {
+    return undefined;
+  }
+}
+
 function CategoryIcon({ category }: { category: Category }) {
   switch (category) {
     case "Flooding":
@@ -261,7 +327,9 @@ function CategoryIcon({ category }: { category: Category }) {
 }
 
 export default function Home() {
-  const [reports, setReports] = useState<Report[]>(sampleReports);
+  // Live reports come from the shared database. Samples are always shown too.
+  const [liveReports, setLiveReports] = useState<Report[]>([]);
+  const reports = [...liveReports, ...sampleReports];
   const [filter, setFilter] = useState<ReportFilter>("All");
 
   const [category, setCategory] = useState<Category>("Flooding");
@@ -303,6 +371,33 @@ export default function Home() {
   const highSeverityCount = reports.filter(
     (report) => report.severity === "High"
   ).length;
+
+  // Load shared reports now, then refresh every 30 seconds.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadReports() {
+      try {
+        const response = await fetch("/api/reports", { cache: "no-store" });
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (cancelled || !data.persisted) return;
+
+        setLiveReports((data.reports as ReportDto[]).map(reportFromDto));
+      } catch (error) {
+        console.error("Could not refresh reports:", error);
+      }
+    }
+
+    loadReports();
+    const timer = setInterval(loadReports, 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   async function handlePhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -425,6 +520,7 @@ export default function Home() {
           imageMime: photo?.mime,
           audioBase64: audio?.data,
           audioMime: audio?.mime,
+          deviceId: getDeviceId(),
         }),
       });
 
@@ -443,13 +539,16 @@ export default function Home() {
 
       // Only independent evidence can raise the status. Gemini alone never does.
       const status: Status =
-        weatherResult.verdict === "Supports" ? "Corroborated" : "Reported";
+        (data.status as Status | undefined) ??
+        (weatherResult.verdict === "Supports" ? "Corroborated" : "Reported");
 
       setAnalysis(result);
       setWeather(weatherResult);
       setResultStatus(status);
 
-      const newReport: Report = {
+      const saved = data.report ? reportFromDto(data.report as ReportDto) : null;
+
+      const localReport: Report = {
         id: `${Date.now()}-${Math.random()}`,
         title: result.title,
         details: result.summary,
@@ -462,7 +561,13 @@ export default function Home() {
         lon: coordinates?.lon,
       };
 
-      setReports((currentReports) => [newReport, ...currentReports]);
+      // If the database is not configured, fall back to a local-only report.
+      const newReport = saved ?? localReport;
+
+      setLiveReports((current) => [
+        newReport,
+        ...current.filter((item) => item.id !== newReport.id),
+      ]);
       setSelectedId(newReport.id);
       setFilter("All");
       setDetails("");
@@ -476,7 +581,7 @@ export default function Home() {
 
       setNotice(
         (status === "Corroborated"
-          ? "Report added as Corroborated because independent weather data supports it. It is not officially confirmed."
+          ? "Report added as Corroborated because independent evidence supports it. It is not officially confirmed."
           : "Report added as Reported. AI analysis is preliminary and the report remains unverified.") +
           mapNote
       );
@@ -558,7 +663,7 @@ export default function Home() {
             </div>
 
             <p className="muted-copy">
-              Reports in this local demo session
+              Live and sample reports in this demo
             </p>
 
             <div className="hero-divider" />
@@ -970,7 +1075,7 @@ export default function Home() {
                   </p>
                 </div>
 
-                <span className="demo-tag">SAMPLE DATA</span>
+                <span className="demo-tag">LIVE + SAMPLE DATA</span>
               </div>
 
               <div className="filter-list" aria-label="Filter reports">
@@ -1060,6 +1165,26 @@ export default function Home() {
                             {report.category}
                           </span>
                         </div>
+
+                        {(report.evidence?.length || report.responderNote) ? (
+                          <ul
+                            style={{
+                              margin: "10px 0 0",
+                              paddingLeft: 18,
+                              fontSize: 13,
+                            }}
+                          >
+                            {report.evidence?.map((item, index) => (
+                              <li key={index}>{item}</li>
+                            ))}
+                            {report.responderNote && (
+                              <li>
+                                <strong>Responder note:</strong>{" "}
+                                {report.responderNote}
+                              </li>
+                            )}
+                          </ul>
+                        ) : null}
                       </div>
                     </div>
                   </article>
@@ -1174,11 +1299,12 @@ export default function Home() {
               <div>
                 <h4>Prototype disclosure</h4>
                 <p>
-                  Sample reports are synthetic. New submissions remain
-                  in page memory and disappear on refresh. Photos and
-                  voice notes are sent to Gemini for analysis and are
-                  not stored by CivicSignal. Nothing is sent to
-                  authorities in this version.
+                  Sample reports are synthetic. Submitted reports are
+                  saved to a shared database as an AI summary with an
+                  approximate location, and anyone can see them.
+                  Photos and voice notes are sent to Gemini for
+                  analysis and are never stored by CivicSignal. Nothing
+                  is sent to authorities in this version.
                 </p>
               </div>
             </section>

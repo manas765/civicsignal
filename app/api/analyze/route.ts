@@ -1,6 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { createHash } from "node:crypto";
+import { getSupabase } from "../../lib/supabase";
+import { toReportDto } from "../../lib/reports";
 
 // Audio + image analysis can take longer than a text-only call.
 export const maxDuration = 30;
@@ -176,6 +179,66 @@ async function buildWeatherCheck(
   }
 }
 
+/* ------------------------------ Corroboration ----------------------------- */
+
+const NEARBY_METERS = 300;
+const NEARBY_HOURS = 24;
+
+function distanceMeters(aLat: number, aLon: number, bLat: number, bLon: number) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLon = toRad(bLon - aLon);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
+
+type NearbyReport = {
+  id: string;
+  status: string;
+  lat: number;
+  lon: number;
+  evidence: unknown;
+};
+
+// Reports of the same kind, nearby and recent, from a DIFFERENT device.
+async function findNearbyReports(
+  supabase: NonNullable<ReturnType<typeof getSupabase>>,
+  category: string,
+  point: { lat: number; lon: number },
+  deviceHash: string
+): Promise<NearbyReport[]> {
+  const latDelta = 0.003;
+  const lonDelta = 0.003 / Math.max(0.2, Math.cos((point.lat * Math.PI) / 180));
+  const since = new Date(Date.now() - NEARBY_HOURS * 3600 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from("reports")
+    .select("id, status, lat, lon, evidence")
+    .eq("category", category)
+    .eq("hidden", false)
+    .gte("created_at", since)
+    .gte("lat", point.lat - latDelta)
+    .lte("lat", point.lat + latDelta)
+    .gte("lon", point.lon - lonDelta)
+    .lte("lon", point.lon + lonDelta)
+    .neq("device_hash", deviceHash)
+    .limit(50);
+
+  if (error) {
+    console.error("Nearby lookup failed:", error);
+    return [];
+  }
+
+  return (data ?? []).filter(
+    (row) =>
+      row.lat !== null &&
+      row.lon !== null &&
+      distanceMeters(point.lat, point.lon, row.lat, row.lon) <= NEARBY_METERS
+  ) as NearbyReport[];
+}
+
 /* -------------------------------- Handler -------------------------------- */
 
 const MAX_BASE64_CHARS = 2_000_000;
@@ -204,6 +267,7 @@ export async function POST(request: Request) {
     const reporterSeverity =
       typeof body.reporterSeverity === "string" ? body.reporterSeverity : "";
 
+    const deviceId = typeof body.deviceId === "string" ? body.deviceId.slice(0, 64) : "";
     const lat = typeof body.lat === "number" && Math.abs(body.lat) <= 90 ? body.lat : undefined;
     const lon = typeof body.lon === "number" && Math.abs(body.lon) <= 180 ? body.lon : undefined;
 
@@ -240,6 +304,42 @@ export async function POST(request: Request) {
 
     if (audioBase64 && audioMime !== "audio/wav") {
       return NextResponse.json({ error: "Unsupported audio type." }, { status: 400 });
+    }
+
+    // An anonymous per-browser ID lets us tell different reporters apart.
+    // It is hashed, and it is not an account, so it can be reset by clearing site data.
+    const deviceHash = deviceId
+      ? createHash("sha256")
+          .update(`${process.env.RATE_LIMIT_SALT ?? "civicsignal"}:device:${deviceId}`)
+          .digest("hex")
+      : null;
+
+    // Basic abuse protection: at most 5 saved reports per device in 10 minutes.
+    // The IP is hashed, so the database never stores a raw address.
+    const supabase = getSupabase();
+    const forwarded = request.headers.get("x-forwarded-for") ?? "";
+    const clientIp = forwarded.split(",")[0].trim() || "unknown";
+    const clientHash = createHash("sha256")
+      .update(`${process.env.RATE_LIMIT_SALT ?? "civicsignal"}:${clientIp}`)
+      .digest("hex");
+
+    if (supabase) {
+      const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const { count } = await supabase
+        .from("reports")
+        .select("id", { count: "exact", head: true })
+        .eq("client_hash", clientHash)
+        .gte("created_at", since);
+
+      if ((count ?? 0) >= 5) {
+        return NextResponse.json(
+          {
+            error:
+              "Too many reports from this device. Please wait a few minutes and try again.",
+          },
+          { status: 429 }
+        );
+      }
     }
 
     const ai = new GoogleGenAI({ apiKey });
@@ -359,7 +459,88 @@ Rules:
 
     const weather = await buildWeatherCheck(analysis.category, point);
 
-    return NextResponse.json({ analysis, weather, coordinates: point });
+    // The server decides the status. Only independent evidence can raise it:
+    // external weather data, or matching reports from different devices.
+    const neighbours =
+      supabase && point && deviceHash
+        ? await findNearbyReports(supabase, analysis.category, point, deviceHash)
+        : [];
+
+    const evidence: string[] = [];
+    if (weather.verdict === "Supports") {
+      evidence.push(
+        `Rainfall data supports this report (${weather.rain24hMm} mm in the last 24 h).`
+      );
+    }
+    if (neighbours.length > 0) {
+      evidence.push(
+        `${neighbours.length} other ${
+          neighbours.length === 1 ? "report" : "reports"
+        } from different devices within ${NEARBY_METERS} m in the last ${NEARBY_HOURS} h.`
+      );
+    }
+
+    const status = evidence.length > 0 ? "Corroborated" : "Reported";
+
+    // Only the AI summary and approximate location are stored.
+    // The photo, the voice note and the raw text are never saved.
+    let report = null;
+    if (supabase) {
+      const { data: row, error } = await supabase
+        .from("reports")
+        .insert({
+          title: analysis.title,
+          summary: analysis.summary,
+          location,
+          category: analysis.category,
+          severity: analysis.severity,
+          status,
+          lat: point?.lat ?? null,
+          lon: point?.lon ?? null,
+          analysis,
+          weather,
+          client_hash: clientHash,
+          device_hash: deviceHash,
+          evidence,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Saving report failed:", error);
+      } else {
+        report = toReportDto(row);
+
+        // The earlier matching reports are now corroborated too.
+        await Promise.all(
+          neighbours
+            .filter((item) => item.status === "Reported")
+            .map((item) => {
+              const previous = Array.isArray(item.evidence)
+                ? (item.evidence as string[])
+                : [];
+              return supabase
+                .from("reports")
+                .update({
+                  status: "Corroborated",
+                  evidence: [
+                    ...previous,
+                    "Matched by a new report from a different device nearby.",
+                  ],
+                })
+                .eq("id", item.id);
+            })
+        );
+      }
+    }
+
+    return NextResponse.json({
+      analysis,
+      weather,
+      coordinates: point,
+      status,
+      report,
+    });
   } catch (error) {
     console.error("CivicSignal analysis failed:", error);
 
