@@ -1016,3 +1016,7 @@ a {
   opacity: 0.65;
   cursor: not-allowed;
 }
+.status-tag.status-officially-confirmed {
+  background: #f4f3ff;
+  color: #5925dc;
+}
