@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { BadgeCheck, EyeOff, ShieldCheck, Undo2 } from "lucide-react";
+import { BadgeCheck, EyeOff, ShieldCheck, Sparkles, Undo2 } from "lucide-react";
 
 type ResponderReport = {
   id: string;
@@ -17,6 +17,44 @@ type ResponderReport = {
   authorityMessage: string;
 };
 
+type Brief = {
+  clusterId: string;
+  areaName: string;
+  headline: string;
+  overallSeverity: "Low" | "Medium" | "High";
+  confidence: "Low" | "Medium" | "High";
+  whatWeKnow: string[];
+  whatWeDontKnow: string[];
+  likelyEscalation: string;
+  priorities: { priority: "Now" | "Soon" | "Later"; action: string }[];
+  resourcesToCheck: string[];
+  reportCount: number;
+  statusCounts: Record<string, number>;
+  categories: string[];
+  windowHours: number;
+};
+
+function briefToText(brief: Brief) {
+  const lines = [
+    `${brief.areaName}: ${brief.headline}`,
+    `Severity: ${brief.overallSeverity} | Confidence: ${brief.confidence} | ${brief.reportCount} reports in the last ${brief.windowHours} h`,
+    "",
+    "What we know:",
+    ...brief.whatWeKnow.map((item) => `- ${item}`),
+    "",
+    "What we do not know:",
+    ...brief.whatWeDontKnow.map((item) => `- ${item}`),
+    "",
+    `Possible escalation: ${brief.likelyEscalation}`,
+    "",
+    "Suggested priorities:",
+    ...brief.priorities.map((item) => `- [${item.priority}] ${item.action}`),
+    "",
+    "AI-generated draft from unverified community reports. For responder review.",
+  ];
+  return lines.join("\n");
+}
+
 export default function ResponderPage() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [reports, setReports] = useState<ResponderReport[]>([]);
@@ -24,6 +62,9 @@ export default function ResponderPage() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [briefs, setBriefs] = useState<Brief[] | null>(null);
+  const [briefMessage, setBriefMessage] = useState("");
+  const [isBriefing, setIsBriefing] = useState(false);
 
   const loadReports = useCallback(async () => {
     const response = await fetch("/api/responder/reports", { cache: "no-store" });
@@ -65,6 +106,39 @@ export default function ResponderPage() {
 
     setPasscode("");
     await loadReports();
+  }
+
+  async function generateBriefs() {
+    setIsBriefing(true);
+    setBriefMessage("");
+    setBriefs(null);
+
+    try {
+      const response = await fetch("/api/responder/brief", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+
+      if (response.status === 401) {
+        setSignedIn(false);
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          response.status === 504
+            ? "The brief took too long to generate. Please try again."
+            : data.error || "Could not generate the briefs."
+        );
+      }
+
+      setBriefs(data.briefs as Brief[]);
+      if ((data.briefs as Brief[]).length === 0) {
+        setBriefMessage(data.message || "No clusters to summarise right now.");
+      }
+    } catch (error) {
+      setBriefMessage(error instanceof Error ? error.message : "Something went wrong.");
+    } finally {
+      setIsBriefing(false);
+    }
   }
 
   async function act(id: string, action: "confirm" | "unconfirm" | "hide") {
@@ -134,6 +208,110 @@ export default function ResponderPage() {
               Sign in
             </button>
           </form>
+        )}
+
+        {signedIn && (
+          <section className="panel" style={{ marginTop: 24, padding: 20 }}>
+            <div className="panel-heading">
+              <div className="panel-icon blue-icon">
+                <Sparkles size={20} />
+              </div>
+              <div>
+                <h3>Situation briefs</h3>
+                <p>
+                  Gemini merges nearby reports from the last 24 hours into one
+                  summary. Drafts for responder review, not official statements.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="submit-button"
+              onClick={generateBriefs}
+              disabled={isBriefing}
+            >
+              {isBriefing ? "Generating briefs..." : "Generate situation briefs"}
+            </button>
+
+            {briefMessage && (
+              <p className="muted-copy" style={{ marginTop: 12 }}>
+                {briefMessage}
+              </p>
+            )}
+
+            {briefs &&
+              briefs.map((brief) => (
+                <article
+                  key={brief.clusterId}
+                  className="report-card"
+                  style={{ marginTop: 16 }}
+                >
+                  <div className="report-main">
+                    <div className="report-title-row">
+                      <h4>{brief.areaName}</h4>
+                      <span
+                        className={`severity-tag severity-${brief.overallSeverity.toLowerCase()}`}
+                      >
+                        {brief.overallSeverity}
+                      </span>
+                    </div>
+
+                    <p className="report-details">{brief.headline}</p>
+
+                    <p style={{ marginTop: 8, fontSize: 13 }}>
+                      <strong>{brief.reportCount} reports</strong> (
+                      {Object.entries(brief.statusCounts)
+                        .map(([label, count]) => `${count} ${label}`)
+                        .join(", ")}
+                      ) · {brief.categories.join(", ")} · Confidence:{" "}
+                      {brief.confidence}
+                    </p>
+
+                    <h4 style={{ marginTop: 12 }}>What we know</h4>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {brief.whatWeKnow.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+
+                    <h4 style={{ marginTop: 12 }}>What we do not know</h4>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {brief.whatWeDontKnow.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+
+                    <h4 style={{ marginTop: 12 }}>Possible escalation</h4>
+                    <p>{brief.likelyEscalation}</p>
+
+                    <h4 style={{ marginTop: 12 }}>Suggested priorities</h4>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {brief.priorities.map((item, index) => (
+                        <li key={index}>
+                          <strong>{item.priority}:</strong> {item.action}
+                        </li>
+                      ))}
+                    </ul>
+
+                    {brief.resourcesToCheck.length > 0 && (
+                      <p style={{ marginTop: 12, fontSize: 13 }}>
+                        <strong>Consider:</strong> {brief.resourcesToCheck.join(", ")}
+                      </p>
+                    )}
+
+                    <button
+                      type="button"
+                      className="filter-pill"
+                      style={{ marginTop: 12 }}
+                      onClick={() => navigator.clipboard.writeText(briefToText(brief))}
+                    >
+                      Copy brief
+                    </button>
+                  </div>
+                </article>
+              ))}
+          </section>
         )}
 
         {signedIn && (

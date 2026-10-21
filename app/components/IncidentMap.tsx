@@ -172,7 +172,7 @@ export default function IncidentMap({
         role="region"
         aria-label="Map of reported incidents"
         style={{
-          height: 380,
+          height: "min(380px, 55vh)",
           borderRadius: 16,
           overflow: "hidden",
           isolation: "isolate",

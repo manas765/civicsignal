@@ -1020,3 +1020,9 @@ a {
   background: #f4f3ff;
   color: #5925dc;
 }
+@media (max-width: 640px) {
+  .filter-pill,
+  .submit-button {
+    min-height: 44px;
+  }
+}

@@ -524,11 +524,14 @@ export default function Home() {
         }),
       });
 
-      const data = await response.json();
+      // A platform timeout returns HTML, not JSON, so parse defensively.
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Could not analyze this report. Please try again."
+          response.status === 504
+            ? "The analysis took too long. Try a smaller photo or a shorter voice note."
+            : data.error || "Could not analyze this report. Please try again."
         );
       }
 
