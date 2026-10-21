@@ -6,7 +6,7 @@ import { getSupabase } from "../../lib/supabase";
 import { toReportDto } from "../../lib/reports";
 
 // Audio + image analysis can take longer than a text-only call.
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.8-flash";
 
@@ -64,7 +64,8 @@ async function geocode(location: string) {
     .filter(Boolean)
     .reverse();
 
-  const queries = Array.from(new Set([location.trim(), ...parts]));
+  // At most two lookups, so a slow geocoder cannot eat the whole time budget.
+  const queries = Array.from(new Set([location.trim(), ...parts])).slice(0, 2);
 
   for (const query of queries) {
     try {
@@ -360,7 +361,8 @@ export async function POST(request: Request) {
       }
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    // Fail fast with a clear message instead of letting the platform time out.
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 40000 } });
 
     const instructions = `
 You are the triage engine for CivicSignal, a civic-tech app that turns messy community reports
@@ -561,6 +563,25 @@ Rules:
     });
   } catch (error) {
     console.error("CivicSignal analysis failed:", error);
+
+    const text = error instanceof Error ? error.message : String(error);
+
+    if (/\b429\b|RESOURCE_EXHAUSTED|quota|rate limit/i.test(text)) {
+      return NextResponse.json(
+        { error: "The AI service is busy right now. Please wait a minute and try again." },
+        { status: 503 }
+      );
+    }
+
+    if (/timeout|timed out|abort/i.test(text)) {
+      return NextResponse.json(
+        {
+          error:
+            "The AI took too long to respond. Try again, or use a smaller photo or a shorter voice note.",
+        },
+        { status: 504 }
+      );
+    }
 
     return NextResponse.json(
       { error: "Could not analyze this report. Please try again." },
