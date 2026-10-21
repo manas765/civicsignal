@@ -24,6 +24,7 @@ type Row = {
   lat: number;
   lon: number;
   evidence: unknown;
+  weather: unknown;
 };
 
 const SEVERITY_RANK: Record<string, number> = { Low: 1, Medium: 2, High: 3 };
@@ -101,7 +102,7 @@ export async function POST() {
 
     const { data, error } = await supabase
       .from("reports")
-      .select("id, created_at, title, summary, location, category, severity, status, lat, lon, evidence")
+      .select("id, created_at, title, summary, location, category, severity, status, lat, lon, evidence, weather")
       .eq("hidden", false)
       .gte("created_at", since)
       .not("lat", "is", null)
@@ -134,6 +135,13 @@ export async function POST() {
     // Only structured, already-summarised fields go to Gemini. No device data, no raw input.
     const clusterInput = clusters.map((group, index) => ({
       clusterId: `C${index + 1}`,
+      // Modelled rain forecast for the next 6 hours near this cluster, or null if unknown.
+      forecastRainNext6hMm: (() => {
+        const values = group
+          .map((row) => (row.weather as { rainNext6hMm?: number } | null)?.rainNext6hMm)
+          .filter((value): value is number => typeof value === "number");
+        return values.length > 0 ? Math.max(...values) : null;
+      })(),
       reports: group.map((row, position) => ({
         ref: `R${position + 1}`,
         ageMinutes: Math.round((now - new Date(row.created_at).getTime()) / 60000),
@@ -158,7 +166,7 @@ Rules:
 - overallSeverity: based on the worst credible reports and how many agree.
 - confidence: High only if several reports agree and some are Corroborated or Officially Confirmed. Low if one source or conflicting information.
 - whatWeKnow and whatWeDontKnow: at most 4 short items each. Always include real gaps in whatWeDontKnow.
-- likelyEscalation: one cautious sentence about what could get worse, framed as a possibility.
+- likelyEscalation: one cautious sentence about what could get worse, framed as a possibility. If forecastRainNext6hMm is a number, it is modelled forecast data: use it to ground this sentence and say it is a forecast. If it is null, do not mention any weather forecast.
 - priorities: 2 to 4 suggested actions for responders, ordered by urgency. They are suggestions for a human to decide, never claims that anyone has been dispatched.
 - resourcesToCheck: up to 3 types of resource or team a responder might consider, such as drainage crew or traffic police. No specific names or phone numbers.
 - Use the exact clusterId values given.

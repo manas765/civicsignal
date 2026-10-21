@@ -20,11 +20,14 @@ import {
   Crosshair,
   Info,
   MapPin,
+  Mail,
+  MessageCircle,
   Mic,
   Plus,
   ShieldCheck,
   Sparkles,
   Square,
+  Volume2,
   Waves,
   CircleAlert,
 } from "lucide-react";
@@ -298,6 +301,27 @@ function reportFromDto(dto: ReportDto): Report {
   };
 }
 
+const LANGUAGES = [
+  { name: "English", code: "en-IN" },
+  { name: "Tamil", code: "ta-IN" },
+  { name: "Hindi", code: "hi-IN" },
+  { name: "Telugu", code: "te-IN" },
+  { name: "Kannada", code: "kn-IN" },
+  { name: "Malayalam", code: "ml-IN" },
+  { name: "Bengali", code: "bn-IN" },
+  { name: "Marathi", code: "mr-IN" },
+];
+
+const DANGER_TEXT =
+  "Possible immediate danger. Move to safety and call 112, the emergency number in India.";
+
+type Translation = {
+  language: string;
+  danger: string;
+  actions: string[];
+  message: string;
+};
+
 function getDeviceId() {
   try {
     let id = localStorage.getItem("civicsignal_device");
@@ -342,6 +366,11 @@ export default function Home() {
   const [analysis, setAnalysis] = useState<IncidentAnalysis | null>(null);
   const [weather, setWeather] = useState<WeatherCheck | null>(null);
   const [resultStatus, setResultStatus] = useState<Status>("Reported");
+  const [resultCoords, setResultCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [lang, setLang] = useState("English");
+  const [translation, setTranslation] = useState<Translation | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
 
   const [photo, setPhoto] = useState<PhotoAttachment | null>(null);
   const [audio, setAudio] = useState<AudioAttachment | null>(null);
@@ -485,6 +514,102 @@ export default function Home() {
     );
   }
 
+  function stopSpeaking() {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    setSpeaking(false);
+  }
+
+  function readAloud() {
+    if (!analysis) return;
+
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setNotice("This browser cannot read text aloud.");
+      return;
+    }
+
+    // Read the urgent steps only, so it stays short.
+    const lines: string[] = [];
+    if (analysis.immediateDanger) lines.push(translation?.danger ?? DANGER_TEXT);
+    analysis.actions.forEach((item, index) => {
+      if (item.priority !== "Later") {
+        lines.push(translation?.actions[index] ?? item.action);
+      }
+    });
+
+    const code = LANGUAGES.find((item) => item.name === lang)?.code ?? "en-IN";
+    const utterance = new SpeechSynthesisUtterance(lines.join(". "));
+    utterance.lang = code;
+
+    const voices = window.speechSynthesis.getVoices();
+    if (
+      voices.length > 0 &&
+      !voices.some((voice) => voice.lang.toLowerCase().startsWith(code.slice(0, 2)))
+    ) {
+      setNotice(
+        `This device has no ${lang} voice installed, so it may read the text in another voice.`
+      );
+    }
+
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    setSpeaking(true);
+  }
+
+  async function handleLanguageChange(name: string) {
+    stopSpeaking();
+    setLang(name);
+
+    if (name === "English" || !analysis) {
+      setTranslation(null);
+      return;
+    }
+
+    setIsTranslating(true);
+    setNotice("");
+
+    try {
+      const texts = [
+        DANGER_TEXT,
+        ...analysis.actions.map((item) => item.action),
+        analysis.authorityMessage,
+      ];
+
+      const response = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language: name, texts }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not translate right now.");
+      }
+
+      const translations = data.translations as string[];
+
+      setTranslation({
+        language: name,
+        danger: translations[0],
+        actions: translations.slice(1, 1 + analysis.actions.length),
+        message: translations[translations.length - 1],
+      });
+    } catch (error) {
+      setLang("English");
+      setTranslation(null);
+      setNotice(
+        error instanceof Error ? error.message : "Could not translate right now."
+      );
+    } finally {
+      setIsTranslating(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -502,6 +627,9 @@ export default function Home() {
     setNotice("");
     setAnalysis(null);
     setWeather(null);
+    setTranslation(null);
+    setLang("English");
+    stopSpeaking();
 
     try {
       const response = await fetch("/api/analyze", {
@@ -549,6 +677,7 @@ export default function Home() {
       setAnalysis(result);
       setWeather(weatherResult);
       setResultStatus(status);
+      setResultCoords(coordinates);
 
       const saved = data.report ? reportFromDto(data.report as ReportDto) : null;
 
@@ -601,6 +730,14 @@ export default function Home() {
       setIsAnalyzing(false);
     }
   }
+
+  const shareText = analysis
+    ? `${translation?.message ?? analysis.authorityMessage}${
+        resultCoords
+          ? `\n\nApproximate location: https://www.google.com/maps?q=${resultCoords.lat},${resultCoords.lon}`
+          : ""
+      }`
+    : "";
 
   return (
     <main className="app-shell">
@@ -1018,10 +1155,56 @@ export default function Home() {
                     >
                       What to do
                     </h4>
+
+                    <div className="lang-row">
+                      <label className="lang-label" htmlFor="lang-select">
+                        Show steps in
+                      </label>
+                      <select
+                        id="lang-select"
+                        className="lang-select"
+                        value={lang}
+                        onChange={(event) => handleLanguageChange(event.target.value)}
+                        disabled={isTranslating}
+                      >
+                        {LANGUAGES.map((item) => (
+                          <option key={item.name} value={item.name}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        className="filter-pill"
+                        onClick={speaking ? stopSpeaking : readAloud}
+                      >
+                        {speaking ? (
+                          <>
+                            <Square size={15} /> Stop
+                          </>
+                        ) : (
+                          <>
+                            <Volume2 size={15} /> Listen
+                          </>
+                        )}
+                      </button>
+
+                      {isTranslating && (
+                        <span className="field-hint">Translating...</span>
+                      )}
+                    </div>
+
+                    {translation && (
+                      <p className="analysis-footnote" style={{ marginTop: 0 }}>
+                        Translated by Gemini into {translation.language}. Please
+                        have a local speaker check important safety steps.
+                      </p>
+                    )}
                     {(["Now", "Soon", "Later"] as const).map((priority) => {
-                      const items = analysis.actions.filter(
-                        (item) => item.priority === priority
-                      );
+                      const items = analysis.actions
+                        .map((item, originalIndex) => ({ ...item, originalIndex }))
+                        .filter((item) => item.priority === priority);
                       if (items.length === 0) return null;
 
                       return (
@@ -1033,7 +1216,10 @@ export default function Home() {
                           <ul>
                             {items.map((item, index) => (
                               <li key={index}>
-                                <em>{item.audience}:</em> {item.action}
+                                <em>{item.audience}:</em>{" "}
+                                {translation
+                                  ? translation.actions[item.originalIndex] ?? item.action
+                                  : item.action}
                               </li>
                             ))}
                           </ul>
@@ -1043,19 +1229,34 @@ export default function Home() {
 
                     <div className="analysis-block">
                       <h4>Draft message to the civic helpline</h4>
-                      <p>{analysis.authorityMessage}</p>
-                      <button
-                        type="button"
-                        className="filter-pill"
-                        style={{ marginTop: 12 }}
-                        onClick={() =>
-                          navigator.clipboard.writeText(
-                            analysis.authorityMessage
-                          )
-                        }
-                      >
-                        Copy message
-                      </button>
+                      <p>{translation?.message ?? analysis.authorityMessage}</p>
+                      <div className="share-row">
+                        <button
+                          type="button"
+                          className="filter-pill"
+                          onClick={() => navigator.clipboard.writeText(shareText)}
+                        >
+                          Copy message
+                        </button>
+
+                        <a
+                          className="filter-pill"
+                          href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <MessageCircle size={15} /> WhatsApp
+                        </a>
+
+                        <a
+                          className="filter-pill"
+                          href={`mailto:?subject=${encodeURIComponent(
+                            `Civic incident report: ${analysis.title}`
+                          )}&body=${encodeURIComponent(shareText)}`}
+                        >
+                          <Mail size={15} /> Email
+                        </a>
+                      </div>
                     </div>
 
                     {analysis.missingDetails.length > 0 && (

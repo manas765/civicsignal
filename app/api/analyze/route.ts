@@ -51,6 +51,7 @@ type WeatherCheck = {
     | "Unavailable";
   rain24hMm?: number;
   rain3hMm?: number;
+  rainNext6hMm?: number;
   note: string;
 };
 
@@ -87,10 +88,10 @@ async function geocode(location: string) {
 async function checkRainfall(
   lat: number,
   lon: number
-): Promise<{ rain24h: number; rain3h: number }> {
+): Promise<{ rain24h: number; rain3h: number; rainAhead: number }> {
   const response = await fetch(
     `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-      `&current=precipitation&hourly=precipitation&past_days=1&forecast_days=1&timezone=auto`,
+      `&current=precipitation&hourly=precipitation&past_days=1&forecast_days=2&timezone=auto`,
     { signal: AbortSignal.timeout(4000) }
   );
 
@@ -115,7 +116,17 @@ async function checkRainfall(
     return Math.round(total * 10) / 10;
   };
 
-  return { rain24h: sumFrom(index - 23), rain3h: sumFrom(index - 2) };
+  // Forecast for the next 6 hours (model-based).
+  let ahead = 0;
+  for (let i = index + 1; i <= Math.min(times.length - 1, index + 6); i++) {
+    ahead += precipitation[i] ?? 0;
+  }
+
+  return {
+    rain24h: sumFrom(index - 23),
+    rain3h: sumFrom(index - 2),
+    rainAhead: Math.round(ahead * 10) / 10,
+  };
 }
 
 async function buildWeatherCheck(
@@ -139,8 +150,12 @@ async function buildWeatherCheck(
       };
     }
 
-    const { rain24h, rain3h } = await checkRainfall(point.lat, point.lon);
-    const caveat = "This is model-based weather data, not a sensor at the exact spot.";
+    const { rain24h, rain3h, rainAhead } = await checkRainfall(point.lat, point.lon);
+    const outlook =
+      rainAhead >= 1
+        ? `Forecast: about ${rainAhead} mm more rain in the next 6 h.`
+        : "No significant rain is forecast for the next 6 h.";
+    const caveat = `${outlook} This is model-based weather data, not a sensor at the exact spot.`;
 
     if (rain24h >= 10 || rain3h >= 5) {
       return {
@@ -148,6 +163,7 @@ async function buildWeatherCheck(
         verdict: "Supports",
         rain24hMm: rain24h,
         rain3hMm: rain3h,
+        rainNext6hMm: rainAhead,
         note: `${rain24h} mm of rain in the last 24 h (${rain3h} mm in the last 3 h) was recorded near this location, which is consistent with a rain-related flood report. ${caveat}`,
       };
     }
@@ -158,6 +174,7 @@ async function buildWeatherCheck(
         verdict: "Does not support",
         rain24hMm: rain24h,
         rain3hMm: rain3h,
+        rainNext6hMm: rainAhead,
         note: `Almost no rain (${rain24h} mm in 24 h) was recorded nearby. The water may come from another cause, such as a burst pipe or a blocked drain, so a human should check. ${caveat}`,
       };
     }
@@ -167,6 +184,7 @@ async function buildWeatherCheck(
       verdict: "Inconclusive",
       rain24hMm: rain24h,
       rain3hMm: rain3h,
+      rainNext6hMm: rainAhead,
       note: `Light rain (${rain24h} mm in 24 h) was recorded nearby, which neither confirms nor rules out flooding. ${caveat}`,
     };
   } catch (error) {
