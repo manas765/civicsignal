@@ -613,13 +613,6 @@ export default function Home() {
             Civic<span className="brand-accent">Signal</span>
           </span>
         </a>
-
-        <div className="topbar-meta">
-          <span className="live-dot" />
-          <span>Societal Benefit · Hackathon build</span>
-          <span className="topbar-divider" />
-          <span className="demo-avatar">CS</span>
-        </div>
       </header>
 
       <div className="page-wrap">
@@ -890,7 +883,7 @@ export default function Home() {
                     />
                   )}
 
-                  <span className="character-count">
+                  <span className="field-hint">
                     Voice notes work in any language (30 s max). Photos are
                     resized in your browser and location metadata is removed.
                   </span>
