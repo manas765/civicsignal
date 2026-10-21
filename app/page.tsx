@@ -23,6 +23,7 @@ import {
   Mic,
   Plus,
   ShieldCheck,
+  Sparkles,
   Square,
   Waves,
   CircleAlert,
@@ -904,7 +905,7 @@ export default function Home() {
                 </div>
 
                 <button
-                  className="submit-button"
+                  className={`submit-button ${isAnalyzing ? "is-loading" : ""}`}
                   type="submit"
                   disabled={isAnalyzing || isRecording}
                 >
@@ -922,6 +923,14 @@ export default function Home() {
                   )}
                 </button>
 
+                {isAnalyzing && (
+                  <p className="loading-hint" role="status">
+                    Gemini is reading your report and drafting safe next
+                    steps. Independent checks run right after. This can take
+                    up to 15 seconds.
+                  </p>
+                )}
+
                 {notice && (
                   <div className="notice" role="status">
                     <CheckCircle2 size={17} />
@@ -930,64 +939,60 @@ export default function Home() {
                 )}
 
                 {analysis && (
-                  <section
-                    className="panel"
-                    aria-live="polite"
-                    style={{ marginTop: 20, padding: 20 }}
-                  >
+                  <section className="analysis-card" aria-live="polite">
                     {analysis.immediateDanger && (
-                      <div
-                        className="notice"
-                        role="alert"
-                        style={{ marginBottom: 16 }}
-                      >
-                        <CircleAlert size={17} />
-                        <span>
-                          <strong>Possible immediate danger.</strong> Move to
-                          safety and call 112 (India&apos;s emergency number).
-                          CivicSignal does not contact authorities for you.
-                        </span>
+                      <div className="danger-banner" role="alert">
+                        <CircleAlert size={20} />
+                        <div>
+                          <strong>Possible immediate danger</strong>
+                          <p>
+                            Move to safety and call 112 (India&apos;s
+                            emergency number). CivicSignal does not contact
+                            authorities for you.
+                          </p>
+                        </div>
                       </div>
                     )}
 
-                    <div className="panel-heading">
-                      <div className="panel-icon blue-icon">
-                        <Activity size={20} />
-                      </div>
-                      <div>
-                        <h3>Gemini incident analysis</h3>
-                        <p>
-                          AI-assisted assessment · Status: {resultStatus} · Not
-                          officially confirmed
-                        </p>
-                      </div>
+                    <div className="analysis-head">
+                      <span className="gemini-badge">
+                        <Sparkles size={15} /> Gemini analysis
+                      </span>
+
+                      <span className="chip-row">
+                        <span
+                          className={`severity-tag severity-${analysis.severity.toLowerCase()}`}
+                        >
+                          {analysis.severity} severity
+                        </span>
+                        <span
+                          className={`status-tag status-${statusSlug(resultStatus)}`}
+                        >
+                          {resultStatus}
+                        </span>
+                      </span>
                     </div>
 
-                    <h4>{analysis.title}</h4>
-                    <p>{analysis.summary}</p>
-
-                    <p style={{ marginTop: 12 }}>
-                      <strong>Category:</strong> {analysis.category}
-                      {" · "}
-                      <strong>Preliminary severity:</strong> {analysis.severity}
+                    <h4 className="analysis-title">{analysis.title}</h4>
+                    <p className="analysis-summary">{analysis.summary}</p>
+                    <p className="analysis-sub">
+                      {analysis.category} · {analysis.severityReason}
                     </p>
-                    <p>{analysis.severityReason}</p>
 
-                    {(analysis.detectedLanguage ||
-                      analysis.englishTranscript) && (
-                      <>
-                        <h4 style={{ marginTop: 16 }}>
-                          Understood input ({analysis.detectedLanguage})
-                        </h4>
-                        {analysis.englishTranscript && (
-                          <p>{analysis.englishTranscript}</p>
-                        )}
-                      </>
+                    {(analysis.englishTranscript ||
+                      analysis.detectedLanguage) && (
+                      <div className="analysis-block">
+                        <h4>Understood input ({analysis.detectedLanguage})</h4>
+                        <p>
+                          {analysis.englishTranscript ||
+                            "Written report understood as submitted."}
+                        </p>
+                      </div>
                     )}
 
                     {analysis.photoObservations.length > 0 && (
-                      <>
-                        <h4 style={{ marginTop: 16 }}>
+                      <div className="analysis-block">
+                        <h4>
                           What the photo shows ({analysis.photoConsistency})
                         </h4>
                         <ul>
@@ -995,19 +1000,31 @@ export default function Home() {
                             <li key={index}>{item}</li>
                           ))}
                         </ul>
-                      </>
+                      </div>
                     )}
 
                     {weather && (
-                      <>
-                        <h4 style={{ marginTop: 16 }}>
-                          Independent check: {weather.verdict}
+                      <div className="analysis-block">
+                        <h4>
+                          Independent check
+                          <span
+                            className={`verdict verdict-${weather.verdict
+                              .toLowerCase()
+                              .replace(/\s+/g, "-")}`}
+                          >
+                            {weather.verdict}
+                          </span>
                         </h4>
                         <p>{weather.note}</p>
-                      </>
+                      </div>
                     )}
 
-                    <h4 style={{ marginTop: 16 }}>What to do</h4>
+                    <h4
+                      className="analysis-title"
+                      style={{ fontSize: 16, marginTop: 22 }}
+                    >
+                      What to do
+                    </h4>
                     {(["Now", "Soon", "Later"] as const).map((priority) => {
                       const items = analysis.actions.filter(
                         (item) => item.priority === priority
@@ -1015,7 +1032,10 @@ export default function Home() {
                       if (items.length === 0) return null;
 
                       return (
-                        <div key={priority} style={{ marginTop: 8 }}>
+                        <div
+                          key={priority}
+                          className={`action-group action-${priority.toLowerCase()}`}
+                        >
                           <strong>{priority}</strong>
                           <ul>
                             {items.map((item, index) => (
@@ -1028,40 +1048,42 @@ export default function Home() {
                       );
                     })}
 
-                    <h4 style={{ marginTop: 16 }}>
-                      Draft message to the civic helpline
-                    </h4>
-                    <p>{analysis.authorityMessage}</p>
-                    <button
-                      type="button"
-                      className="filter-pill"
-                      style={{ marginTop: 8 }}
-                      onClick={() =>
-                        navigator.clipboard.writeText(analysis.authorityMessage)
-                      }
-                    >
-                      Copy message
-                    </button>
+                    <div className="analysis-block">
+                      <h4>Draft message to the civic helpline</h4>
+                      <p>{analysis.authorityMessage}</p>
+                      <button
+                        type="button"
+                        className="filter-pill"
+                        style={{ marginTop: 12 }}
+                        onClick={() =>
+                          navigator.clipboard.writeText(
+                            analysis.authorityMessage
+                          )
+                        }
+                      >
+                        Copy message
+                      </button>
+                    </div>
 
-                    <h4 style={{ marginTop: 16 }}>Details to clarify</h4>
-                    {analysis.missingDetails.length ? (
-                      <ul>
-                        {analysis.missingDetails.map((item, index) => (
-                          <li key={index}>{item}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p>No additional details were flagged by the AI.</p>
+                    {analysis.missingDetails.length > 0 && (
+                      <div className="analysis-block">
+                        <h4>Details that would help</h4>
+                        <ul>
+                          {analysis.missingDetails.map((item, index) => (
+                            <li key={index}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
 
-                    {analysis.possibleDuplicateKeywords.length > 0 && (
-                      <>
-                        <h4 style={{ marginTop: 16 }}>
-                          Similar-report keywords
-                        </h4>
-                        <p>{analysis.possibleDuplicateKeywords.join(", ")}</p>
-                      </>
-                    )}
+                    <p className="analysis-footnote">
+                      AI-assisted and preliminary
+                      {analysis.possibleDuplicateKeywords.length > 0
+                        ? ` · Keywords: ${analysis.possibleDuplicateKeywords.join(", ")}`
+                        : ""}
+                      . Only independent evidence or a responder can raise a
+                      report&apos;s status.
+                    </p>
                   </section>
                 )}
               </form>
