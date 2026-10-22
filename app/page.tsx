@@ -24,6 +24,7 @@ import {
   MessageCircle,
   Mic,
   Plus,
+  Search,
   ShieldCheck,
   Sparkles,
   Square,
@@ -315,6 +316,26 @@ const LANGUAGES = [
 const DANGER_TEXT =
   "Possible immediate danger. Move to safety and call 112, the emergency number in India.";
 
+type ForwardResult = {
+  verdict:
+    | "Supported by sources"
+    | "Contradicted by sources"
+    | "Mixed or unclear"
+    | "No credible confirmation found";
+  confidence: "Low" | "Medium" | "High";
+  summary: string;
+  claims: string[];
+  sourcesSay: string[];
+  warningSigns: string[];
+  beforeSharing: string[];
+};
+
+type ForwardSource = { title: string; url: string };
+
+// A made-up message, used only as a demo example.
+const EXAMPLE_FORWARD =
+  "URGENT!!! FORWARD TO EVERYONE. Dam gates opened at midnight, all low areas will be under 6 feet of water in 2 hours. Move to high ground NOW. Information from my friend in the government, do not ignore.";
+
 type Translation = {
   language: string;
   danger: string;
@@ -371,6 +392,12 @@ export default function Home() {
   const [translation, setTranslation] = useState<Translation | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+
+  const [forwardText, setForwardText] = useState("");
+  const [forwardResult, setForwardResult] = useState<ForwardResult | null>(null);
+  const [forwardSources, setForwardSources] = useState<ForwardSource[]>([]);
+  const [forwardError, setForwardError] = useState("");
+  const [isChecking, setIsChecking] = useState(false);
 
   const [photo, setPhoto] = useState<PhotoAttachment | null>(null);
   const [audio, setAudio] = useState<AudioAttachment | null>(null);
@@ -512,6 +539,48 @@ export default function Home() {
       () => setNotice("Location permission was denied. You can still type a landmark."),
       { timeout: 8000 }
     );
+  }
+
+  async function handleForwardCheck(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const message = forwardText.trim();
+    if (message.length < 20) {
+      setForwardError("Paste the full message (at least 20 characters).");
+      return;
+    }
+
+    setIsChecking(true);
+    setForwardError("");
+    setForwardResult(null);
+    setForwardSources([]);
+
+    try {
+      const response = await fetch("/api/check-forward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          response.status === 504
+            ? "The check took too long. Please try again."
+            : data.error || "Could not check this message. Please try again."
+        );
+      }
+
+      setForwardResult(data.result as ForwardResult);
+      setForwardSources((data.sources as ForwardSource[]) ?? []);
+    } catch (error) {
+      setForwardError(
+        error instanceof Error ? error.message : "Something went wrong. Please try again."
+      );
+    } finally {
+      setIsChecking(false);
+    }
   }
 
   function stopSpeaking() {
@@ -776,6 +845,11 @@ export default function Home() {
                 <Plus size={18} />
                 Report an issue
                 <ArrowUpRight size={17} />
+              </a>
+
+              <a href="#check-forward" className="ghost-link">
+                <Search size={16} />
+                Check a forwarded message
               </a>
 
               <span className="privacy-note">
@@ -1281,6 +1355,176 @@ export default function Home() {
                   </section>
                 )}
               </form>
+            </section>
+
+            <section className="panel forward-panel" id="check-forward">
+              <div className="panel-heading">
+                <div className="panel-icon blue-icon">
+                  <Search size={20} />
+                </div>
+
+                <div>
+                  <h3>Check a forwarded message</h3>
+                  <p>
+                    Got a scary WhatsApp forward? Paste it and see what
+                    credible sources say before you share it.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleForwardCheck}>
+                <label className="field">
+                  <span>Paste the message</span>
+                  <textarea
+                    placeholder="Paste the forwarded message here, in any language."
+                    rows={4}
+                    value={forwardText}
+                    onChange={(event) => setForwardText(event.target.value)}
+                    maxLength={1500}
+                  />
+                  <span className="character-count">
+                    {forwardText.length}/1500
+                  </span>
+                </label>
+
+                <div className="share-row" style={{ marginTop: 0 }}>
+                  <button
+                    type="button"
+                    className="filter-pill"
+                    onClick={() => setForwardText(EXAMPLE_FORWARD)}
+                  >
+                    Try a made-up example
+                  </button>
+                </div>
+
+                <button
+                  className={`submit-button ${isChecking ? "is-loading" : ""}`}
+                  type="submit"
+                  disabled={isChecking}
+                >
+                  {isChecking ? (
+                    <>
+                      <Search size={18} />
+                      Searching trusted sources...
+                    </>
+                  ) : (
+                    <>
+                      <Search size={18} />
+                      Check this message
+                    </>
+                  )}
+                </button>
+
+                {isChecking && (
+                  <p className="loading-hint" role="status">
+                    Gemini is searching the web for official and news sources.
+                    This can take up to 30 seconds.
+                  </p>
+                )}
+
+                {forwardError && (
+                  <div className="notice danger-notice" role="alert">
+                    <CircleAlert size={17} />
+                    <span>{forwardError}</span>
+                  </div>
+                )}
+              </form>
+
+              {forwardResult && (
+                <section className="analysis-card" aria-live="polite" style={{ marginTop: 20 }}>
+                  <div className="analysis-head">
+                    <span className="gemini-badge">
+                      <Sparkles size={15} /> Gemini + Google Search
+                    </span>
+
+                    <span className="chip-row">
+                      <span
+                        className={`fc-chip fc-${forwardResult.verdict
+                          .toLowerCase()
+                          .replace(/\s+/g, "-")}`}
+                      >
+                        {forwardResult.verdict}
+                      </span>
+                      <span className="severity-tag severity-low">
+                        {forwardResult.confidence} confidence
+                      </span>
+                    </span>
+                  </div>
+
+                  <p className="analysis-summary" style={{ marginTop: 14 }}>
+                    {forwardResult.summary}
+                  </p>
+
+                  {forwardResult.claims.length > 0 && (
+                    <div className="analysis-block">
+                      <h4>What the message claims</h4>
+                      <ul>
+                        {forwardResult.claims.map((item, index) => (
+                          <li key={index}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {forwardResult.sourcesSay.length > 0 && (
+                    <div className="analysis-block">
+                      <h4>What sources say</h4>
+                      <ul>
+                        {forwardResult.sourcesSay.map((item, index) => (
+                          <li key={index}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {forwardResult.warningSigns.length > 0 && (
+                    <div className="analysis-block">
+                      <h4>Warning signs in the message</h4>
+                      <ul>
+                        {forwardResult.warningSigns.map((item, index) => (
+                          <li key={index}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {forwardResult.beforeSharing.length > 0 && (
+                    <div className="analysis-block">
+                      <h4>Before you share it</h4>
+                      <ul>
+                        {forwardResult.beforeSharing.map((item, index) => (
+                          <li key={index}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="analysis-block">
+                    <h4>Sources found</h4>
+                    {forwardSources.length > 0 ? (
+                      <ul className="source-list">
+                        {forwardSources.map((item) => (
+                          <li key={item.url}>
+                            <a href={item.url} target="_blank" rel="noopener noreferrer">
+                              {item.title}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>No sources were found for this message.</p>
+                    )}
+                  </div>
+
+                  <p className="analysis-footnote">
+                    AI-generated summary of web search results, not an
+                    official source. Not finding confirmation does not prove a
+                    message is false. In an emergency, follow instructions
+                    from official authorities. Messages checked here are not
+                    saved.
+                  </p>
+                </section>
+              )}
             </section>
 
             <section className="reports-section">

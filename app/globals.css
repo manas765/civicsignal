@@ -1081,6 +1081,79 @@ a {
   color: var(--info);
 }
 
+.forward-panel {
+  margin-top: 24px;
+  padding: 28px;
+  scroll-margin-top: 90px;
+}
+
+.forward-panel form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ghost-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 20px;
+  border: 1.5px solid #c4c7c5;
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.7);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.ghost-link:hover {
+  background: var(--surface);
+  border-color: var(--primary);
+}
+
+.danger-notice {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.fc-chip {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  background: #f1f3f4;
+  color: var(--ink-2);
+}
+
+.fc-supported-by-sources {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.fc-contradicted-by-sources {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.fc-mixed-or-unclear {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.fc-no-credible-confirmation-found {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.source-list a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  word-break: break-word;
+}
+
 .lang-row,
 .share-row {
   display: flex;
