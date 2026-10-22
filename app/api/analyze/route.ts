@@ -350,7 +350,7 @@ export async function POST(request: Request) {
         .eq("client_hash", clientHash)
         .gte("created_at", since);
 
-      if ((count ?? 0) >= 5) {
+      if ((count ?? 0) >= (Number(process.env.REPORT_LIMIT) || 5)) {
         return NextResponse.json(
           {
             error:

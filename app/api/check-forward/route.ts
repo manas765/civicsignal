@@ -11,7 +11,7 @@ const hits = new Map<string, number[]>();
 function isLimited(key: string) {
   const now = Date.now();
   const recent = (hits.get(key) ?? []).filter((time) => now - time < 10 * 60 * 1000);
-  if (recent.length >= 5) {
+  if (recent.length >= (Number(process.env.FORWARD_LIMIT) || 5)) {
     hits.set(key, recent);
     return true;
   }

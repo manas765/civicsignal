@@ -22,7 +22,7 @@ const hits = new Map<string, number[]>();
 function isLimited(key: string) {
   const now = Date.now();
   const recent = (hits.get(key) ?? []).filter((time) => now - time < 10 * 60 * 1000);
-  if (recent.length >= 12) {
+  if (recent.length >= (Number(process.env.TRANSLATE_LIMIT) || 12)) {
     hits.set(key, recent);
     return true;
   }
