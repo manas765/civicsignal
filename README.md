@@ -20,7 +20,10 @@ When a street floods or a road collapses, the first information is messy: a blur
 4. **Checks the evidence independently.** Gemini's opinion never raises a report's status. Only independent evidence does.
 5. **Puts it on a live map.** Fill colour shows severity, ring colour shows verification status.
 6. **Keeps a human in charge.** Only a signed-in responder can mark a report *Officially Confirmed*.
-7. **Writes situation briefs.** For clusters of nearby reports, Gemini drafts a brief for responders: what we know, what we don't, possible escalation, and suggested priorities.
+7. **Writes situation briefs.** For clusters of nearby reports, Gemini drafts a brief for responders: what we know, what we don't, possible escalation (grounded in a 6-hour rain forecast when available), and suggested priorities.
+8. **Speaks the reporter's language.** Safety steps and the helpline message can be shown in Tamil, Hindi, Telugu, Kannada, Malayalam, Bengali or Marathi, and read aloud with the device's built-in voice.
+9. **Makes the output easy to send.** One tap to copy, WhatsApp or email the helpline message, with an approximate map link when a location is known.
+10. **Checks forwarded messages.** Paste a scary WhatsApp forward and Gemini, using Google Search, reports what credible sources say, the warning signs in the message, and what to do before sharing. It never calls a message false just because nothing was found.
 
 ## Verification model
 
@@ -36,6 +39,8 @@ Each report card lists *why* it has its status.
 
 - **Report analysis** (`app/api/analyze/route.ts`): multimodal input (text, image, audio) to schema-constrained JSON.
 - **Situation briefs** (`app/api/responder/brief/route.ts`): merges clusters of reports into one responder-facing brief.
+- **Translation** (`app/api/translate/route.ts`): translates the safety steps and helpline message, with an exact-count check so steps never get dropped.
+- **Forward checker** (`app/api/check-forward/route.ts`): two steps. First a Google Search grounded call researches the claims. Then a second call structures the notes into a fixed JSON verdict. Source links come from Google's grounding metadata, never from the model's own text, and a firm verdict with zero sources is automatically downgraded.
 
 ### Prompt design
 
@@ -44,6 +49,7 @@ Each report card lists *why* it has its status.
 - The model is told to use only facts that are present, to list unknowns, never to claim a report is verified, and never to advise entering floodwater or approaching hazards.
 - Immediate danger always produces a first action to move to safety and call the emergency number.
 - Briefs respect each report's status and cannot describe anything as confirmed beyond it.
+- The forward checker states that missing confirmation does not prove a message false, and tells people to follow official authorities in an emergency.
 
 ## Safety, privacy and trust
 
@@ -52,6 +58,7 @@ Each report card lists *why* it has its status.
 - API keys and the database service key are server-side only. The database table has row-level security enabled, so the browser cannot read or write it directly.
 - Per-device rate limit on submissions to protect the Gemini quota. IP addresses are stored only as salted hashes.
 - Briefs are responder-only so an AI summary is never mistaken for an official statement.
+- Messages pasted into the forward checker are not stored.
 - Demo data is clearly labelled as synthetic. Nothing is sent to real authorities.
 
 ## Known limitations (honest list)
@@ -62,6 +69,9 @@ Each report card lists *why* it has its status.
 - The responder console uses one shared passcode. A real deployment needs named accounts and an audit log.
 - Moderation is manual (responders can hide a report).
 - Only flooding reports get the automatic weather cross-check today.
+- Translations are machine-generated, so the app asks a local speaker to check important safety steps. Read-aloud quality depends on the voices installed on the device.
+- The forward checker is an AI summary of web search results, not an official source, and its quality depends on what search finds.
+- Rate limits on the translate and forward-check endpoints are best-effort per server instance, not a hard guarantee.
 
 ## Tech stack
 
@@ -133,8 +143,14 @@ app/
   api/responder/login/route.ts  responder sign-in
   api/responder/reports/route.ts  list, confirm, hide
   api/responder/brief/route.ts  situation briefs
+  api/translate/route.ts        translation of safety steps
+  api/check-forward/route.ts    forwarded-message checker
   lib/                          Supabase client, auth, geo, report mapping
 ```
+
+## Testing
+
+`TESTING.md` lists 16 test cases (typed, photo, voice, vague, immediate danger, prompt injection, spam, corroboration, responder flow, forward checker, failure cases) with expected and actual results.
 
 ## Disclaimer
 
