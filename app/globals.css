@@ -1147,6 +1147,74 @@ a {
   color: var(--info);
 }
 
+.status-resolved {
+  background: #f1f3f4;
+  color: var(--ink-2);
+}
+
+.timeline {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.timeline summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 700;
+  list-style-position: inside;
+}
+
+.timeline ol {
+  margin: 8px 0 0;
+  padding-left: 0;
+  list-style: none;
+  border-left: 2px solid var(--primary-soft);
+}
+
+.timeline li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 4px 0 4px 12px;
+}
+
+.timeline li span {
+  color: var(--muted);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--surface-2);
+}
+
+.stat-card span {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.stat-card strong {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+@media (max-width: 700px) {
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 .source-list a {
   color: var(--primary);
   text-decoration: underline;

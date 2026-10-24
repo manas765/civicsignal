@@ -219,6 +219,7 @@ type NearbyReport = {
   lat: number;
   lon: number;
   evidence: unknown;
+  status_history: unknown;
 };
 
 // Reports of the same kind, nearby and recent, from a DIFFERENT device.
@@ -234,7 +235,7 @@ async function findNearbyReports(
 
   const { data, error } = await supabase
     .from("reports")
-    .select("id, status, lat, lon, evidence")
+    .select("id, status, lat, lon, evidence, status_history")
     .eq("category", category)
     .eq("hidden", false)
     .gte("created_at", since)
@@ -504,6 +505,12 @@ Rules:
 
     // Only the AI summary and approximate location are stored.
     // The photo, the voice note and the raw text are never saved.
+    const nowIso = new Date().toISOString();
+    const history = [
+      { event: "Reported", at: nowIso },
+      ...(status === "Corroborated" ? [{ event: "Corroborated", at: nowIso }] : []),
+    ];
+
     let report = null;
     if (supabase) {
       const { data: row, error } = await supabase
@@ -522,6 +529,7 @@ Rules:
           client_hash: clientHash,
           device_hash: deviceHash,
           evidence,
+          status_history: history,
         })
         .select()
         .single();
@@ -539,10 +547,18 @@ Rules:
               const previous = Array.isArray(item.evidence)
                 ? (item.evidence as string[])
                 : [];
+              const previousHistory =
+                Array.isArray(item.status_history) && item.status_history.length > 0
+                  ? (item.status_history as { event: string; at?: string }[])
+                  : [{ event: "Reported" }];
               return supabase
                 .from("reports")
                 .update({
                   status: "Corroborated",
+                  status_history: [
+                    ...previousHistory,
+                    { event: "Corroborated", at: nowIso },
+                  ],
                   evidence: [
                     ...previous,
                     "Matched by a new report from a different device nearby.",

@@ -16,6 +16,7 @@ export type MapReport = {
   time: string;
   lat: number;
   lon: number;
+  faded?: boolean;
 };
 
 type Props = {
@@ -127,9 +128,10 @@ export default function IncidentMap({
       const marker: CircleMarker = L.circleMarker([report.lat, report.lon], {
         radius: selected ? 15 : 10,
         fillColor: SEVERITY_COLOR[report.severity],
-        fillOpacity: 0.85,
+        fillOpacity: report.faded ? 0.3 : 0.85,
+        opacity: report.faded ? 0.5 : 1,
         color: STATUS_COLOR[report.status] ?? "#667085",
-        weight: selected ? 6 : 4,
+        weight: selected ? 6 : report.faded ? 2 : 4,
       });
 
       marker.bindPopup(buildPopup(report));

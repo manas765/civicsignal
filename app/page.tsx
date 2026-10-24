@@ -44,6 +44,8 @@ type Category =
 type Severity = "Low" | "Medium" | "High";
 type Status = "Reported" | "Corroborated" | "Officially Confirmed";
 
+type TimelineItem = { event: string; at?: string; label?: string };
+
 type Report = {
   id: string;
   title: string;
@@ -57,6 +59,9 @@ type Report = {
   lon?: number;
   evidence?: string[];
   responderNote?: string;
+  createdAt?: string;
+  resolved?: boolean;
+  timeline?: TimelineItem[];
 };
 
 type IncidentAction = {
@@ -122,6 +127,7 @@ const sampleReports: Report[] = [
     severity: "High",
     status: "Reported",
     time: "12 min ago",
+    timeline: [{ event: "Reported", label: "12 min ago" }],
     lat: 13.0604,
     lon: 80.2496,
   },
@@ -135,6 +141,10 @@ const sampleReports: Report[] = [
     severity: "Medium",
     status: "Corroborated",
     time: "28 min ago",
+    timeline: [
+      { event: "Reported", label: "28 min ago" },
+      { event: "Corroborated", label: "20 min ago" },
+    ],
     lat: 13.0878,
     lon: 80.2785,
     evidence: ["Sample: matching reports from different devices nearby."],
@@ -149,6 +159,7 @@ const sampleReports: Report[] = [
     severity: "Low",
     status: "Reported",
     time: "46 min ago",
+    timeline: [{ event: "Reported", label: "46 min ago" }],
     lat: 13.05,
     lon: 80.2121,
   },
@@ -162,6 +173,11 @@ const sampleReports: Report[] = [
     severity: "Medium",
     status: "Officially Confirmed",
     time: "1 h ago",
+    timeline: [
+      { event: "Reported", label: "1 h ago" },
+      { event: "Corroborated", label: "50 min ago" },
+      { event: "Officially Confirmed", label: "35 min ago" },
+    ],
     lat: 13.1067,
     lon: 80.2206,
     evidence: ["Sample: matching reports from different devices nearby."],
@@ -171,6 +187,28 @@ const sampleReports: Report[] = [
 
 // Initial map view. Change this to the area you are demoing.
 const DEFAULT_CENTER: [number, number] = [13.0827, 80.2707];
+
+// Reports fade after 48 hours unless a responder confirmed them,
+// and leave the active view once they are resolved.
+const FADE_AFTER_HOURS = 48;
+
+function isActive(report: Report) {
+  if (report.resolved) return false;
+  if (report.status === "Officially Confirmed") return true;
+  if (!report.createdAt) return true;
+  const ageHours = (Date.now() - new Date(report.createdAt).getTime()) / 3600000;
+  return ageHours < FADE_AFTER_HOURS;
+}
+
+function formatTime(iso?: string) {
+  if (!iso) return "time not recorded";
+  return new Date(iso).toLocaleString([], {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function statusSlug(status: Status) {
   return status.toLowerCase().replace(/\s+/g, "-");
@@ -273,6 +311,8 @@ type ReportDto = {
   lon?: number;
   evidence?: string[];
   responderNote?: string;
+  resolvedAt?: string;
+  timeline?: TimelineItem[];
 };
 
 function timeAgo(iso: string) {
@@ -297,6 +337,9 @@ function reportFromDto(dto: ReportDto): Report {
     time: timeAgo(dto.createdAt),
     evidence: dto.evidence,
     responderNote: dto.responderNote,
+    createdAt: dto.createdAt,
+    resolved: Boolean(dto.resolvedAt),
+    timeline: dto.timeline,
     lat: dto.lat,
     lon: dto.lon,
   };
@@ -376,6 +419,8 @@ export default function Home() {
   // Live reports come from the shared database. Samples are always shown too.
   const [liveReports, setLiveReports] = useState<Report[]>([]);
   const reports = [...liveReports, ...sampleReports];
+  const activeReports = reports.filter(isActive);
+  const [showOlder, setShowOlder] = useState(false);
   const [filter, setFilter] = useState<ReportFilter>("All");
 
   const [category, setCategory] = useState<Category>("Flooding");
@@ -410,10 +455,11 @@ export default function Home() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
+  const pool = showOlder ? reports : activeReports;
   const visibleReports =
     filter === "All"
-      ? reports
-      : reports.filter((report) => report.category === filter);
+      ? pool
+      : pool.filter((report) => report.category === filter);
 
   const mappedReports = visibleReports.filter(
     (report): report is Report & { lat: number; lon: number } =>
@@ -421,11 +467,11 @@ export default function Home() {
   );
   const unmappedCount = visibleReports.length - mappedReports.length;
 
-  const reviewCount = reports.filter(
+  const reviewCount = activeReports.filter(
     (report) => report.status === "Reported"
   ).length;
 
-  const highSeverityCount = reports.filter(
+  const highSeverityCount = activeReports.filter(
     (report) => report.severity === "High"
   ).length;
 
@@ -866,7 +912,7 @@ export default function Home() {
             </div>
 
             <div className="hero-number">
-              {String(reports.length).padStart(2, "0")}
+              {String(activeReports.length).padStart(2, "0")}
               <span> signals</span>
             </div>
 
@@ -922,7 +968,10 @@ export default function Home() {
           </div>
 
           <IncidentMap
-            reports={mappedReports}
+            reports={mappedReports.map((report) => ({
+              ...report,
+              faded: !isActive(report),
+            }))}
             selectedId={selectedId}
             onSelect={setSelectedId}
             defaultCenter={DEFAULT_CENTER}
@@ -1557,6 +1606,24 @@ export default function Home() {
                 ))}
               </div>
 
+              {reports.length - activeReports.length > 0 && (
+                <div className="share-row" style={{ marginTop: 0, marginBottom: 12 }}>
+                  <button
+                    type="button"
+                    className="filter-pill"
+                    aria-pressed={showOlder}
+                    onClick={() => setShowOlder((current) => !current)}
+                  >
+                    {showOlder ? "Hide" : "Show"} older and resolved (
+                    {reports.length - activeReports.length})
+                  </button>
+                  <span className="field-hint">
+                    Reports fade after 48 h unless a responder confirmed
+                    them, and leave the active view once resolved.
+                  </span>
+                </div>
+              )}
+
               <div className="reports-list">
                 {visibleReports.length === 0 && (
                   <div className="empty-state">
@@ -1577,6 +1644,7 @@ export default function Home() {
                     }}
                     style={{
                       cursor: "pointer",
+                      opacity: isActive(report) ? 1 : 0.6,
                       outline:
                         selectedId === report.id ? "2px solid #2e90fa" : undefined,
                     }}
@@ -1624,6 +1692,12 @@ export default function Home() {
                             {report.status}
                           </span>
 
+                          {report.resolved && (
+                            <span className="status-tag status-resolved">
+                              <CheckCircle2 size={14} /> Resolved
+                            </span>
+                          )}
+
                           <span className="category-label">
                             {report.category}
                           </span>
@@ -1648,6 +1722,23 @@ export default function Home() {
                             )}
                           </ul>
                         ) : null}
+
+                        {report.timeline && report.timeline.length > 0 && (
+                          <details
+                            className="timeline"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <summary>History</summary>
+                            <ol>
+                              {report.timeline.map((item, index) => (
+                                <li key={index}>
+                                  <strong>{item.event}</strong>
+                                  <span>{item.label ?? formatTime(item.at)}</span>
+                                </li>
+                              ))}
+                            </ol>
+                          </details>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -1697,7 +1788,7 @@ export default function Home() {
                   <span>Corroborated reports</span>
                   <strong>
                     {
-                      reports.filter(
+                      activeReports.filter(
                         (report) => report.status === "Corroborated"
                       ).length
                     }{" "}
