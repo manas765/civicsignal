@@ -1185,8 +1185,17 @@ export default function Home() {
                 )}
 
                 {notice && (
-                  <div className="notice" role="status">
-                    <CheckCircle2 size={17} />
+                  <div
+                    className={`notice ${
+                      notice.startsWith("Report added") ? "" : "danger-notice"
+                    }`}
+                    role={notice.startsWith("Report added") ? "status" : "alert"}
+                  >
+                    {notice.startsWith("Report added") ? (
+                      <CheckCircle2 size={17} />
+                    ) : (
+                      <CircleAlert size={17} />
+                    )}
                     <span>{notice}</span>
                   </div>
                 )}

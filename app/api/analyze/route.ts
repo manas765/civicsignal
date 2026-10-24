@@ -599,6 +599,27 @@ Rules:
       );
     }
 
+    if (/API key|API_KEY_INVALID|PERMISSION_DENIED|UNAUTHENTICATED/i.test(text)) {
+      return NextResponse.json(
+        { error: "The AI service is not set up correctly. Please tell the site owner." },
+        { status: 503 }
+      );
+    }
+
+    if (/NOT_FOUND|is not found|not supported for generateContent/i.test(text)) {
+      return NextResponse.json(
+        { error: "The AI model is unavailable right now. Please tell the site owner." },
+        { status: 503 }
+      );
+    }
+
+    if (error instanceof SyntaxError || (error as { name?: string })?.name === "ZodError") {
+      return NextResponse.json(
+        { error: "The AI returned an unexpected answer. Please try again." },
+        { status: 502 }
+      );
+    }
+
     return NextResponse.json(
       { error: "Could not analyze this report. Please try again." },
       { status: 502 }
