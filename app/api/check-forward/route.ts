@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { createResilientAI } from "../../lib/gemini";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 40000 } });
+    const ai = createResilientAI(apiKey);
     const today = new Date().toISOString().slice(0, 10);
 
     // Step 1: research the claims with Google Search.

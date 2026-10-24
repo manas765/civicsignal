@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { createResilientAI } from "../../lib/gemini";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -362,8 +362,8 @@ export async function POST(request: Request) {
       }
     }
 
-    // Fail fast with a clear message instead of letting the platform time out.
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 40000 } });
+    // Retries once on a fallback model if the main one is overloaded or slow.
+    const ai = createResilientAI(apiKey);
 
     const instructions = `
 You are the triage engine for CivicSignal, a civic-tech app that turns messy community reports
@@ -596,6 +596,13 @@ Rules:
             "The AI took too long to respond. Try again, or use a smaller photo or a shorter voice note.",
         },
         { status: 504 }
+      );
+    }
+
+    if (/\b50[34]\b|UNAVAILABLE|high demand|Deadline expired|DEADLINE/i.test(text)) {
+      return NextResponse.json(
+        { error: "The AI service is overloaded right now. Please try again in a moment." },
+        { status: 503 }
       );
     }
 

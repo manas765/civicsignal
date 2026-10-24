@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { createResilientAI } from "../../../lib/gemini";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabase } from "../../../lib/supabase";
@@ -175,7 +175,7 @@ Clusters (JSON):
 ${JSON.stringify(clusterInput)}
 `;
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = createResilientAI(apiKey);
 
     const stringArray = { type: "ARRAY", items: { type: "STRING" } };
     const level = { type: "STRING", enum: ["Low", "Medium", "High"] };
