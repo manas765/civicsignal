@@ -940,6 +940,40 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="flow-strip" aria-label="How CivicSignal works">
+          <div className="flow-step">
+            <span className="flow-icon">
+              <Camera size={20} />
+            </span>
+            <strong>1. Report</strong>
+            <span>Type it, snap it, or say it in any language.</span>
+          </div>
+
+          <div className="flow-step">
+            <span className="flow-icon flow-gemini">
+              <Sparkles size={20} />
+            </span>
+            <strong>2. Gemini structures it</strong>
+            <span>Photo, voice and text become a clear report with safe steps.</span>
+          </div>
+
+          <div className="flow-step">
+            <span className="flow-icon">
+              <ShieldCheck size={20} />
+            </span>
+            <strong>3. Evidence checks it</strong>
+            <span>Rainfall data and nearby reports back it up, not the AI.</span>
+          </div>
+
+          <div className="flow-step">
+            <span className="flow-icon">
+              <BadgeCheck size={20} />
+            </span>
+            <strong>4. A human confirms</strong>
+            <span>Only a responder can mark a report officially confirmed.</span>
+          </div>
+        </section>
+
         <section className="dashboard-heading">
           <div>
             <p className="section-overline">COMMUNITY OVERVIEW</p>
